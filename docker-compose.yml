@@ -1,0 +1,15 @@
+services:
+  db:
+    image: mongo:6.0
+    container_name: db
+    volumes:
+      - mongo_data:/data/db
+
+  db-init:
+    build: ./src/backend
+    container_name: python_db_init
+    depends_on:
+      - db
+
+volumes:
+  mongo_data:
