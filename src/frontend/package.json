@@ -1,0 +1,26 @@
+{
+  "name": "theatre-decorations-frontend",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "build": "vite build",
+    "dev": "vite",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@radix-ui/react-alert-dialog": "1.1.6",
+    "@radix-ui/react-checkbox": "1.1.4",
+    "@radix-ui/react-dialog": "1.1.6",
+    "@radix-ui/react-select": "2.1.6",
+    "lucide-react": "0.487.0",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "sonner": "2.0.3"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "4.1.12",
+    "tailwindcss": "4.1.12",
+    "vite": "6.3.5"
+  }
+}
