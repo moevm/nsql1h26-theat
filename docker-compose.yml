@@ -2,14 +2,30 @@ services:
   db:
     image: mongo:6.0
     container_name: db
+    ports:
+      - "27017:27017"
     volumes:
       - mongo_data:/data/db
 
-  db-init:
+  backend:
     build: ./src/backend
-    container_name: python_db_init
     depends_on:
       - db
+    environment:
+      MONGO_URL: mongodb://db:27017/
+      MONGO_DB: theatre_db
+      SECRET_KEY: dev-secret-key
+    ports:
+      - "8000:8000"
+
+  frontend:
+    build: ./src/frontend
+    depends_on:
+      - backend
+    environment:
+      VITE_API_URL: http://localhost:8000/api
+    ports:
+      - "5173:5173"
 
 volumes:
   mongo_data:
