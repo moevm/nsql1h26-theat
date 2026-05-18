@@ -2,11 +2,12 @@ import os
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from init_db import init_db
 
 from app.database import db
+from app.routers.admin import router as admin_router
 from app.routers.auth import router as auth_router
 from app.routers.decorations import router as decorations_router
-from init_db import init_db
 
 app = FastAPI(title="Theatre Decorations API")
 
@@ -32,3 +33,4 @@ def health():
 
 app.include_router(auth_router, prefix="/api/auth", tags=["auth"])
 app.include_router(decorations_router, prefix="/api/decorations", tags=["decorations"])
+app.include_router(admin_router, prefix="/api/admin", tags=["admin"])
