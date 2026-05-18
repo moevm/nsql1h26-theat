@@ -2,8 +2,6 @@ services:
   db:
     image: mongo:6.0
     container_name: db
-    ports:
-      - "27017:27017"
     volumes:
       - mongo_data:/data/db
 
@@ -16,7 +14,7 @@ services:
       MONGO_DB: theatre_db
       SECRET_KEY: dev-secret-key
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
 
   frontend:
     build: ./src/frontend
@@ -25,7 +23,7 @@ services:
     environment:
       VITE_API_URL: http://localhost:8000/api
     ports:
-      - "5173:5173"
+      - "127.0.0.1:5173:5173"
 
 volumes:
   mongo_data:

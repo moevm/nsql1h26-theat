@@ -1,10 +1,16 @@
-import React, { useState } from 'react';
-import { Button } from './ui/button';
-import { Input } from './ui/input';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
-import { Badge } from './ui/badge';
-import { Checkbox } from './ui/checkbox';
-import { Label } from './ui/label';
+import React, { useState, useEffect, useCallback, useRef } from "react";
+import { Button } from "./ui/button";
+import { Input } from "./ui/input";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "./ui/card";
+import { Badge } from "./ui/badge";
+import { Checkbox } from "./ui/checkbox";
+import { Label } from "./ui/label";
 import {
   Plus,
   Search,
@@ -13,43 +19,82 @@ import {
   Trash2,
   Eye,
   LogOut,
-  X
-} from 'lucide-react';
-import { useAuth } from '../contexts/AuthContext';
-import { useDecorations, Decoration, DecorationStatus, DecorationCategory } from '../contexts/DecorationContext';
-import { DecorationFormDialog } from './DecorationFormDialog';
-import { DecorationDetailsDialog } from './DecorationDetailsDialog';
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from './ui/alert-dialog';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
-import { toast } from 'sonner';
+  X,
+  Settings,
+} from "lucide-react";
+import { useAuth } from "../contexts/AuthContext";
+import {
+  useDecorations,
+  Decoration,
+  DecorationStatus,
+  DecorationCategory,
+} from "../contexts/DecorationContext";
+import { DecorationFormDialog } from "./DecorationFormDialog";
+import { DecorationDetailsDialog } from "./DecorationDetailsDialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "./ui/alert-dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "./ui/select";
+import { apiFetch } from "../api/client";
+import { toast } from "sonner";
 
-const CATEGORY_ATTRIBUTE_FIELDS: Record<DecorationCategory, { key: string; label: string }[]> = {
+const CATEGORY_LABELS: Record<DecorationCategory, string> = {
+  costume: "Костюм",
+  furniture: "Мебель и интерьер",
+  background: "Фон",
+  props: "Реквизит",
+  construction: "Конструкции",
+};
+
+const ROLE_LABELS: Record<string, string> = {
+  user: "Пользователь",
+  manager: "Заведующий",
+  admin: "Администратор",
+};
+
+const CATEGORY_ATTRIBUTE_FIELDS: Record<
+  DecorationCategory,
+  { key: string; label: string }[]
+> = {
   costume: [
-    { key: 'size', label: 'Размер' },
-    { key: 'color', label: 'Цвет' },
-    { key: 'era', label: 'Эпоха' },
-    { key: 'condition', label: 'Состояние' },
+    { key: "size", label: "Размер" },
+    { key: "color", label: "Цвет" },
+    { key: "era", label: "Эпоха" },
+    { key: "condition", label: "Состояние" },
   ],
   furniture: [
-    { key: 'type', label: 'Тип' },
-    { key: 'material', label: 'Материал' },
-    { key: 'dimensions', label: 'Габариты' },
-    { key: 'period', label: 'Период/стиль' },
+    { key: "type", label: "Тип" },
+    { key: "material", label: "Материал" },
+    { key: "dimensions", label: "Габариты" },
+    { key: "period", label: "Период/стиль" },
   ],
   background: [
-    { key: 'type', label: 'Тип' },
-    { key: 'size', label: 'Размер' },
-    { key: 'theme', label: 'Тематика' },
+    { key: "type", label: "Тип" },
+    { key: "size", label: "Размер" },
+    { key: "theme", label: "Тематика" },
   ],
   props: [
-    { key: 'type', label: 'Тип' },
-    { key: 'material', label: 'Материал' },
-    { key: 'size', label: 'Размер' },
+    { key: "type", label: "Тип" },
+    { key: "material", label: "Материал" },
+    { key: "size", label: "Размер" },
   ],
   construction: [
-    { key: 'type', label: 'Тип' },
-    { key: 'dimensions', label: 'Габариты' },
-    { key: 'material', label: 'Материал' },
+    { key: "type", label: "Тип" },
+    { key: "dimensions", label: "Габариты" },
+    { key: "material", label: "Материал" },
   ],
 };
 
@@ -63,131 +108,177 @@ const createEmptyAttributeFilters = (): AttributeFilterState => ({
   construction: {},
 });
 
-const fieldMatches = (fieldValue: unknown, query: string): boolean => {
-  const normalizedQuery = query.trim().toLocaleLowerCase('ru-RU');
-  if (!normalizedQuery) return true;
-  return String(fieldValue ?? '').toLocaleLowerCase('ru-RU').includes(normalizedQuery);
-};
+interface DecorationManagementProps {
+  onAdminPanel?: () => void;
+}
 
-export const DecorationManagement: React.FC = () => {
+export const DecorationManagement: React.FC<DecorationManagementProps> = ({
+  onAdminPanel,
+}) => {
   const { currentUser, logout } = useAuth();
-  const { decorations, deleteDecoration, updateDecoration } = useDecorations();
-  const [searchQuery, setSearchQuery] = useState('');
-  const [categoryFilters, setCategoryFilters] = useState<DecorationCategory[]>([]);
+  const { deleteDecoration, updateDecoration } = useDecorations();
+
+  const [decorations, setDecorations] = useState<Decoration[]>([]);
+  const [total, setTotal] = useState(0);
+  const [loading, setLoading] = useState(false);
+
+  const [searchQuery, setSearchQuery] = useState("");
+  const [categoryFilters, setCategoryFilters] = useState<DecorationCategory[]>(
+    [],
+  );
   const [statusFilters, setStatusFilters] = useState<DecorationStatus[]>([]);
-  const [attributeFilters, setAttributeFilters] = useState<AttributeFilterState>(createEmptyAttributeFilters);
+  const [attributeFilters, setAttributeFilters] =
+    useState<AttributeFilterState>(createEmptyAttributeFilters);
   const [showFilters, setShowFilters] = useState(false);
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
-  const [editingDecoration, setEditingDecoration] = useState<Decoration | null>(null);
-  const [viewingDecoration, setViewingDecoration] = useState<Decoration | null>(null);
+  const [editingDecoration, setEditingDecoration] = useState<Decoration | null>(
+    null,
+  );
+  const [viewingDecoration, setViewingDecoration] = useState<Decoration | null>(
+    null,
+  );
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [updatingStatusId, setUpdatingStatusId] = useState<string | null>(null);
 
-  const isManager = currentUser?.role === 'manager';
-  const isAdmin = currentUser?.role === 'admin';
+  const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const isManager = currentUser?.role === "manager";
+  const isAdmin = currentUser?.role === "admin";
   const canEdit = isManager || isAdmin;
+  const canSeeAdmin = isAdmin && !!onAdminPanel;
 
-  const getCategoryLabel = (category: DecorationCategory): string => {
-    const labels = {
-      costume: 'Костюм',
-      furniture: 'Мебель и интерьер',
-      background: 'Фон',
-      props: 'Реквизит',
-      construction: 'Конструкции'
-    };
-    return labels[category];
-  };
+  const fetchDecorations = useCallback(
+    async (
+      name: string,
+      categories: DecorationCategory[],
+      statuses: DecorationStatus[],
+      attrFilters: AttributeFilterState,
+    ) => {
+      setLoading(true);
+      try {
+        const params = new URLSearchParams();
+        if (name) params.set("name", name);
+        if (categories.length === 1) params.set("category", categories[0]);
+        if (statuses.length === 1) params.set("status", statuses[0]);
 
-  const getStatusLabel = (status: DecorationStatus): string => {
-    const labels = {
-      'in-stock': 'В наличии',
-      'out-of-stock': 'Нет в наличии'
-    };
-    return labels[status];
-  };
+        for (const category of categories) {
+          for (const [key, value] of Object.entries(attrFilters[category])) {
+            if (value.trim()) params.set(key, value.trim());
+          }
+        }
 
-  const getStatusColor = (status: DecorationStatus): string => {
-    const colors = {
-      'in-stock': 'status-badge-in-stock',
-      'out-of-stock': 'status-badge-out-of-stock'
+        const data = await apiFetch<Decoration[]>(
+          `/decorations?${params.toString()}`,
+        );
+        setDecorations(data);
+        setTotal(data.length);
+      } catch {
+        toast.error("Не удалось загрузить декорации");
+      } finally {
+        setLoading(false);
+      }
+    },
+    [],
+  );
+
+  useEffect(() => {
+    if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+    searchTimerRef.current = setTimeout(() => {
+      void fetchDecorations(
+        searchQuery,
+        categoryFilters,
+        statusFilters,
+        attributeFilters,
+      );
+    }, 300);
+    return () => {
+      if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
     };
-    return colors[status];
-  };
+  }, [
+    searchQuery,
+    categoryFilters,
+    statusFilters,
+    attributeFilters,
+    fetchDecorations,
+  ]);
+
+  const getStatusLabel = (status: DecorationStatus) =>
+    status === "in-stock" ? "В наличии" : "Нет в наличии";
+
+  const getStatusColor = (status: DecorationStatus) =>
+    status === "in-stock"
+      ? "status-badge-in-stock"
+      : "status-badge-out-of-stock";
 
   const toggleCategoryFilter = (category: DecorationCategory) => {
-    setCategoryFilters(prev => {
+    setCategoryFilters((prev) => {
       if (prev.includes(category)) {
-        setAttributeFilters(current => ({ ...current, [category]: {} }));
-        return prev.filter(c => c !== category);
+        setAttributeFilters((current) => ({ ...current, [category]: {} }));
+        return prev.filter((c) => c !== category);
       }
       return [...prev, category];
     });
   };
 
   const toggleStatusFilter = (status: DecorationStatus) => {
-    setStatusFilters(prev =>
+    setStatusFilters((prev) =>
       prev.includes(status)
-        ? prev.filter(s => s !== status)
-        : [...prev, status]
+        ? prev.filter((s) => s !== status)
+        : [...prev, status],
     );
   };
 
-  const updateAttributeFilter = (category: DecorationCategory, fieldKey: string, value: string) => {
-    setAttributeFilters(prev => ({
+  const updateAttributeFilter = (
+    category: DecorationCategory,
+    fieldKey: string,
+    value: string,
+  ) => {
+    setAttributeFilters((prev) => ({
       ...prev,
-      [category]: {
-        ...prev[category],
-        [fieldKey]: value,
-      },
+      [category]: { ...prev[category], [fieldKey]: value },
     }));
   };
 
-  const activeAttributeFilterCount = Object.values(attributeFilters).reduce((count, group) => {
-    return count + Object.values(group).filter(value => value.trim()).length;
-  }, 0);
-
-  const activeFilterCount = categoryFilters.length + statusFilters.length + activeAttributeFilterCount;
+  const activeAttributeFilterCount = Object.values(attributeFilters).reduce(
+    (count, group) =>
+      count + Object.values(group).filter((v) => v.trim()).length,
+    0,
+  );
+  const activeFilterCount =
+    categoryFilters.length + statusFilters.length + activeAttributeFilterCount;
 
   const resetFilters = () => {
     setCategoryFilters([]);
     setStatusFilters([]);
     setAttributeFilters(createEmptyAttributeFilters());
-    setSearchQuery('');
+    setSearchQuery("");
   };
 
-  const filteredDecorations = decorations.filter(decoration => {
-    const matchesSearch = fieldMatches(decoration.name, searchQuery);
-    const matchesCategory = categoryFilters.length === 0 || categoryFilters.includes(decoration.category);
-    const matchesStatus = statusFilters.length === 0 || statusFilters.includes(decoration.status);
-    const matchesAttributes = Object.entries(attributeFilters[decoration.category] || {}).every(([fieldKey, value]) => {
-      if (!value.trim()) return true;
-      return fieldMatches((decoration as unknown as Record<string, unknown>)[fieldKey], value);
-    });
-
-    return matchesSearch && matchesCategory && matchesStatus && matchesAttributes;
-  });
-
   const handleDelete = async () => {
-    if (deletingId) {
-      try {
-        await deleteDecoration(deletingId);
-        toast.success('Декорация удалена');
-        setDeletingId(null);
-      } catch (error) {
-        toast.error('Недостаточно прав для удаления декорации');
-      }
+    if (!deletingId) return;
+    try {
+      await deleteDecoration(deletingId);
+      setDecorations((prev) => prev.filter((d) => d.id !== deletingId));
+      toast.success("Декорация удалена");
+      setDeletingId(null);
+    } catch {
+      toast.error("Недостаточно прав для удаления декорации");
     }
   };
 
   const handleStatusUpdate = async (newStatus: DecorationStatus) => {
-    if (updatingStatusId) {
-      try {
-        await updateDecoration(updatingStatusId, { status: newStatus });
-        toast.success('Статус обновлен');
-        setUpdatingStatusId(null);
-      } catch (error) {
-        toast.error('Недостаточно прав для обновления статуса');
-      }
+    if (!updatingStatusId) return;
+    try {
+      await updateDecoration(updatingStatusId, { status: newStatus });
+      setDecorations((prev) =>
+        prev.map((d) =>
+          d.id === updatingStatusId ? { ...d, status: newStatus } : d,
+        ),
+      );
+      toast.success("Статус обновлен");
+      setUpdatingStatusId(null);
+    } catch {
+      toast.error("Недостаточно прав для обновления статуса");
     }
   };
 
@@ -197,27 +288,27 @@ export const DecorationManagement: React.FC = () => {
     return false;
   };
 
-  const getRoleLabel = (role: string) => {
-    const labels = {
-      user: 'Пользователь',
-      manager: 'Заведующий',
-      admin: 'Администратор'
-    };
-    return labels[role as keyof typeof labels] || role;
-  };
-
   return (
     <div className="min-h-screen bg-gray-50">
       <header className="bg-white shadow-sm border-b">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <div className="flex justify-between items-center">
             <div>
-              <h1 className="text-2xl font-bold text-gray-900">Управление декорациями</h1>
+              <h1 className="text-2xl font-bold text-gray-900">
+                Управление декорациями
+              </h1>
               <p className="text-sm text-gray-600 mt-1">
-                {currentUser?.firstName} {currentUser?.lastName} ({getRoleLabel(currentUser?.role || '')})
+                {currentUser?.firstName} {currentUser?.lastName} (
+                {ROLE_LABELS[currentUser?.role || ""] ?? currentUser?.role})
               </p>
             </div>
             <div className="flex gap-2">
+              {canSeeAdmin && (
+                <Button onClick={onAdminPanel} variant="outline">
+                  <Settings className="size-4 mr-2" />
+                  Панель администратора
+                </Button>
+              )}
               <Button onClick={logout} variant="outline">
                 <LogOut className="size-4 mr-2" />
                 Выйти
@@ -252,10 +343,7 @@ export const DecorationManagement: React.FC = () => {
               )}
             </Button>
             {(activeFilterCount > 0 || searchQuery) && (
-              <Button
-                variant="outline"
-                onClick={resetFilters}
-              >
+              <Button variant="outline" onClick={resetFilters}>
                 <X className="size-4 mr-2" />
                 Сбросить
               </Button>
@@ -274,56 +362,83 @@ export const DecorationManagement: React.FC = () => {
           {showFilters && (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4 border-t">
               <div>
-                <label className="text-sm font-medium mb-3 block">Категория</label>
+                <label className="text-sm font-medium mb-3 block">
+                  Категория
+                </label>
                 <div className="space-y-2">
-                  {(['costume', 'furniture', 'background', 'props', 'construction'] as DecorationCategory[]).map(category => (
-                    <div key={category} className="flex items-center space-x-2">
-                      <Checkbox
-                        id={`cat-${category}`}
-                        checked={categoryFilters.includes(category)}
-                        onCheckedChange={() => toggleCategoryFilter(category)}
-                      />
-                      <Label htmlFor={`cat-${category}`} className="cursor-pointer">
-                        {getCategoryLabel(category)}
-                      </Label>
-                    </div>
-                  ))}
+                  {(Object.keys(CATEGORY_LABELS) as DecorationCategory[]).map(
+                    (category) => (
+                      <div
+                        key={category}
+                        className="flex items-center space-x-2"
+                      >
+                        <Checkbox
+                          id={`cat-${category}`}
+                          checked={categoryFilters.includes(category)}
+                          onCheckedChange={() => toggleCategoryFilter(category)}
+                        />
+                        <Label
+                          htmlFor={`cat-${category}`}
+                          className="cursor-pointer"
+                        >
+                          {CATEGORY_LABELS[category]}
+                        </Label>
+                      </div>
+                    ),
+                  )}
                 </div>
               </div>
               <div>
                 <label className="text-sm font-medium mb-3 block">Статус</label>
                 <div className="space-y-2">
-                  {(['in-stock', 'out-of-stock'] as DecorationStatus[]).map(status => (
-                    <div key={status} className="flex items-center space-x-2">
-                      <Checkbox
-                        id={`status-${status}`}
-                        checked={statusFilters.includes(status)}
-                        onCheckedChange={() => toggleStatusFilter(status)}
-                      />
-                      <Label htmlFor={`status-${status}`} className="cursor-pointer">
-                        {getStatusLabel(status)}
-                      </Label>
-                    </div>
-                  ))}
+                  {(["in-stock", "out-of-stock"] as DecorationStatus[]).map(
+                    (status) => (
+                      <div key={status} className="flex items-center space-x-2">
+                        <Checkbox
+                          id={`status-${status}`}
+                          checked={statusFilters.includes(status)}
+                          onCheckedChange={() => toggleStatusFilter(status)}
+                        />
+                        <Label
+                          htmlFor={`status-${status}`}
+                          className="cursor-pointer"
+                        >
+                          {getStatusLabel(status)}
+                        </Label>
+                      </div>
+                    ),
+                  )}
                 </div>
               </div>
 
               {categoryFilters.length > 0 && (
                 <div className="md:col-span-2 border-t pt-4 space-y-5">
-                  {categoryFilters.map(category => (
+                  {categoryFilters.map((category) => (
                     <div key={category} className="space-y-3">
-                      <h3 className="text-sm font-semibold text-gray-900">{getCategoryLabel(category)}</h3>
+                      <h3 className="text-sm font-semibold text-gray-900">
+                        {CATEGORY_LABELS[category]}
+                      </h3>
                       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-                        {CATEGORY_ATTRIBUTE_FIELDS[category].map(field => (
+                        {CATEGORY_ATTRIBUTE_FIELDS[category].map((field) => (
                           <div key={`${category}-${field.key}`}>
-                            <Label htmlFor={`${category}-${field.key}`} className="text-xs mb-1 block">
+                            <Label
+                              htmlFor={`${category}-${field.key}`}
+                              className="text-xs mb-1 block"
+                            >
                               {field.label}
                             </Label>
                             <Input
                               id={`${category}-${field.key}`}
-                              value={attributeFilters[category][field.key] || ''}
-                              onChange={(e) => updateAttributeFilter(category, field.key, e.target.value)}
-                              placeholder=""
+                              value={
+                                attributeFilters[category][field.key] || ""
+                              }
+                              onChange={(e) =>
+                                updateAttributeFilter(
+                                  category,
+                                  field.key,
+                                  e.target.value,
+                                )
+                              }
                             />
                           </div>
                         ))}
@@ -337,18 +452,21 @@ export const DecorationManagement: React.FC = () => {
         </div>
 
         <div className="text-sm text-gray-600 mb-4">
-          Найдено декораций: {filteredDecorations.length}
+          {loading ? "Загрузка..." : `Найдено декораций: ${total}`}
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {filteredDecorations.map((decoration) => (
-            <Card key={decoration.id} className="hover:shadow-lg transition-shadow">
+          {decorations.map((decoration) => (
+            <Card
+              key={decoration.id}
+              className="hover:shadow-lg transition-shadow"
+            >
               <CardHeader>
                 <div className="flex justify-between items-start">
                   <div className="flex-1">
                     <CardTitle className="text-lg">{decoration.name}</CardTitle>
                     <CardDescription className="mt-1">
-                      {getCategoryLabel(decoration.category)}
+                      {CATEGORY_LABELS[decoration.category]}
                     </CardDescription>
                   </div>
                   <Badge className={getStatusColor(decoration.status)}>
@@ -356,7 +474,7 @@ export const DecorationManagement: React.FC = () => {
                   </Badge>
                 </div>
               </CardHeader>
-              <CardContent className="space-y-4">
+              <CardContent className="space-y-3">
                 <p className="text-sm text-gray-600 line-clamp-2">
                   {decoration.description}
                 </p>
@@ -364,23 +482,45 @@ export const DecorationManagement: React.FC = () => {
                 <div className="grid grid-cols-2 gap-2 text-sm">
                   <div>
                     <span className="text-gray-500">Всего:</span>
-                    <span className="ml-1 font-semibold">{decoration.totalQuantity}</span>
+                    <span className="ml-1 font-semibold">
+                      {decoration.totalQuantity}
+                    </span>
                   </div>
                   <div>
                     <span className="text-gray-500">Доступно:</span>
-                    <span className="ml-1 font-semibold">{decoration.availableQuantity}</span>
+                    <span className="ml-1 font-semibold">
+                      {decoration.availableQuantity}
+                    </span>
                   </div>
                 </div>
 
                 <div className="text-xs text-gray-500">
                   Владелец: {decoration.ownerName}
                 </div>
-
                 <div className="text-xs text-gray-500">
-                  Контактные данные: {decoration.ownerPhone}
+                  Тел: {decoration.ownerPhone}
                 </div>
 
-                <div className="flex flex-wrap gap-2">
+                {(isAdmin || isManager) && (
+                  <div className="text-xs text-gray-400 border-t pt-2 space-y-1">
+                    <div>
+                      Добавил:{" "}
+                      <span className="font-medium text-gray-600">
+                        {decoration.createdBy || "—"}
+                      </span>
+                    </div>
+                    {(decoration as any).lastEditedBy && (
+                      <div>
+                        Изменил:{" "}
+                        <span className="font-medium text-gray-600">
+                          {(decoration as any).lastEditedBy}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                <div className="flex flex-wrap gap-2 pt-1">
                   <Button
                     size="sm"
                     variant="outline"
@@ -404,7 +544,7 @@ export const DecorationManagement: React.FC = () => {
                         variant="outline"
                         onClick={() => setUpdatingStatusId(decoration.id)}
                       >
-                        Обновить статус
+                        Статус
                       </Button>
                       <Button
                         size="sm"
@@ -423,7 +563,7 @@ export const DecorationManagement: React.FC = () => {
           ))}
         </div>
 
-        {filteredDecorations.length === 0 && (
+        {!loading && decorations.length === 0 && (
           <div className="text-center py-12">
             <p className="text-gray-500">Декорации не найдены</p>
           </div>
@@ -435,7 +575,13 @@ export const DecorationManagement: React.FC = () => {
         onOpenChange={setIsAddDialogOpen}
         onSuccess={() => {
           setIsAddDialogOpen(false);
-          toast.success('Декорация добавлена');
+          toast.success("Декорация добавлена");
+          void fetchDecorations(
+            searchQuery,
+            categoryFilters,
+            statusFilters,
+            attributeFilters,
+          );
         }}
       />
 
@@ -446,7 +592,13 @@ export const DecorationManagement: React.FC = () => {
           decoration={editingDecoration}
           onSuccess={() => {
             setEditingDecoration(null);
-            toast.success('Декорация обновлена');
+            toast.success("Декорация обновлена");
+            void fetchDecorations(
+              searchQuery,
+              categoryFilters,
+              statusFilters,
+              attributeFilters,
+            );
           }}
         />
       )}
@@ -459,24 +611,34 @@ export const DecorationManagement: React.FC = () => {
         />
       )}
 
-      <AlertDialog open={!!deletingId} onOpenChange={(open) => !open && setDeletingId(null)}>
+      <AlertDialog
+        open={!!deletingId}
+        onOpenChange={(open) => !open && setDeletingId(null)}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Подтвердите удаление</AlertDialogTitle>
             <AlertDialogDescription>
-              Вы действительно хотите удалить эту декорацию? Это действие нельзя будет отменить.
+              Вы действительно хотите удалить эту декорацию? Это действие нельзя
+              будет отменить.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Отмена</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDelete} className="bg-red-600 hover:bg-red-700">
+            <AlertDialogAction
+              onClick={handleDelete}
+              className="bg-red-600 hover:bg-red-700"
+            >
               Удалить
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
 
-      <AlertDialog open={!!updatingStatusId} onOpenChange={(open) => !open && setUpdatingStatusId(null)}>
+      <AlertDialog
+        open={!!updatingStatusId}
+        onOpenChange={(open) => !open && setUpdatingStatusId(null)}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Обновить статус</AlertDialogTitle>
@@ -485,7 +647,11 @@ export const DecorationManagement: React.FC = () => {
             </AlertDialogDescription>
           </AlertDialogHeader>
           <div className="py-4">
-            <Select onValueChange={(value) => handleStatusUpdate(value as DecorationStatus)}>
+            <Select
+              onValueChange={(value) =>
+                handleStatusUpdate(value as DecorationStatus)
+              }
+            >
               <SelectTrigger>
                 <SelectValue placeholder="Выберите статус" />
               </SelectTrigger>
